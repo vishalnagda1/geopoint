@@ -4,6 +4,7 @@ class CustomerMapApp {
         this.filteredCustomers = [];
         this.map = null;
         this.markerClusterGroup = null;
+        this.markersMap = new Map(); // Store markers by customer ID for quick lookup
         this.requiredColumns = ['accno', 'name', 'longitude', 'lattitude'];
         this.batchSize = 1000; // Process 1000 records at a time
         this.selectedCustomerIndex = -1; // Track selected customer
@@ -76,6 +77,15 @@ class CustomerMapApp {
             ).slice(0, 50); // Limit search results to 50
         }
         this.updateCustomerList();
+        
+        // If there's exactly one result, auto-focus on it
+        if (this.filteredCustomers.length === 1) {
+            const customer = this.filteredCustomers[0];
+            const originalIndex = this.customers.indexOf(customer);
+            setTimeout(() => {
+                this.focusOnCustomer(originalIndex);
+            }, 500);
+        }
     }
 
     handleDragOver(e) {
@@ -360,15 +370,28 @@ class CustomerMapApp {
                 minZoom: 3
             }).addTo(this.map);
 
-            // Initialize marker cluster group
+            // Initialize marker cluster group with better settings
             this.markerClusterGroup = L.markerClusterGroup({
                 chunkedLoading: true,
-                chunkInterval: 200,
-                chunkDelay: 50,
-                maxClusterRadius: 50,
+                chunkInterval: 100,
+                chunkDelay: 25,
+                maxClusterRadius: 40, // Smaller cluster radius for better precision
                 spiderfyOnMaxZoom: true,
                 showCoverageOnHover: false,
-                zoomToBoundsOnClick: true
+                zoomToBoundsOnClick: true,
+                spiderfyDistanceMultiplier: 1.5,
+                iconCreateFunction: function(cluster) {
+                    const count = cluster.getChildCount();
+                    let className = 'marker-cluster-small';
+                    if (count > 100) className = 'marker-cluster-large';
+                    else if (count > 10) className = 'marker-cluster-medium';
+                    
+                    return new L.DivIcon({
+                        html: '<div><span>' + count + '</span></div>',
+                        className: 'marker-cluster ' + className,
+                        iconSize: new L.Point(40, 40)
+                    });
+                }
             });
             
             this.map.addLayer(this.markerClusterGroup);
@@ -393,8 +416,9 @@ class CustomerMapApp {
 
         console.log(`Displaying ${this.customers.length} customers on map with clustering...`);
         
-        // Clear existing markers
+        // Clear existing markers and map
         this.markerClusterGroup.clearLayers();
+        this.markersMap.clear();
 
         if (this.customers.length === 0) return;
 
@@ -409,11 +433,21 @@ class CustomerMapApp {
             
             const markers = [];
             
-            batch.forEach(customer => {
+            batch.forEach((customer, localIndex) => {
                 try {
+                    const globalIndex = start + localIndex;
                     const marker = L.marker([customer.latitude, customer.longitude]);
+                    
+                    // Store customer data in marker for easy access
+                    marker.customerData = customer;
+                    marker.customerIndex = globalIndex;
+                    
                     const popupContent = this.createPopupContent(customer);
                     marker.bindPopup(popupContent);
+                    
+                    // Store marker in map for quick lookup
+                    this.markersMap.set(customer.accno, marker);
+                    
                     markers.push(marker);
                     bounds.push([customer.latitude, customer.longitude]);
                 } catch (error) {
@@ -426,7 +460,7 @@ class CustomerMapApp {
             
             // Allow UI to update between batches
             if (batchIndex < totalBatches - 1) {
-                await new Promise(resolve => setTimeout(resolve, 50));
+                await new Promise(resolve => setTimeout(resolve, 25));
             }
         }
 
@@ -439,6 +473,8 @@ class CustomerMapApp {
                 console.error('Error fitting bounds:', error);
             }
         }
+
+        console.log(`Added ${this.markersMap.size} markers to map`);
     }
 
     createPopupContent(customer) {
@@ -456,6 +492,14 @@ class CustomerMapApp {
                 <p><strong>Coordinates:</strong> ${customer.latitude.toFixed(6)}, ${customer.longitude.toFixed(6)}</p>
             </div>
         `;
+    }
+
+    // Debug method to find customers by coordinates
+    findCustomerByCoordinates(lat, lng, tolerance = 0.0001) {
+        return this.customers.find(customer => 
+            Math.abs(customer.latitude - lat) < tolerance &&
+            Math.abs(customer.longitude - lng) < tolerance
+        );
     }
 
     updateCustomerList() {
@@ -538,17 +582,44 @@ class CustomerMapApp {
     focusOnCustomer(index) {
         if (index >= 0 && index < this.customers.length) {
             const customer = this.customers[index];
+            console.log(`Focusing on customer: ${customer.accno} at ${customer.latitude}, ${customer.longitude}`);
             
             // Center map on customer and zoom in
-            this.map.setView([customer.latitude, customer.longitude], 15);
+            this.map.setView([customer.latitude, customer.longitude], 16);
             
-            // Find and open the marker popup
-            this.markerClusterGroup.eachLayer((layer) => {
-                if (layer.getLatLng().lat === customer.latitude && 
-                    layer.getLatLng().lng === customer.longitude) {
-                    layer.openPopup();
+            // Find the specific marker for this customer
+            const marker = this.markersMap.get(customer.accno);
+            if (marker) {
+                console.log('Found marker, opening popup');
+                
+                // If marker is in a cluster, we need to spiderfy first
+                const cluster = this.markerClusterGroup.getVisibleParent(marker);
+                if (cluster && cluster !== marker) {
+                    // Marker is clustered, zoom in more to uncluster it
+                    setTimeout(() => {
+                        this.map.setView([customer.latitude, customer.longitude], 18);
+                        // Try to open popup after zoom
+                        setTimeout(() => {
+                            marker.openPopup();
+                        }, 500);
+                    }, 300);
+                } else {
+                    // Marker is not clustered, open popup directly
+                    marker.openPopup();
                 }
-            });
+            } else {
+                console.log('Marker not found for customer:', customer.accno);
+                // Create a temporary marker if the original isn't found
+                const tempMarker = L.marker([customer.latitude, customer.longitude])
+                    .addTo(this.map);
+                const popupContent = this.createPopupContent(customer);
+                tempMarker.bindPopup(popupContent).openPopup();
+                
+                // Remove temporary marker after 5 seconds
+                setTimeout(() => {
+                    this.map.removeLayer(tempMarker);
+                }, 5000);
+            }
         }
     }
 
@@ -617,6 +688,7 @@ class CustomerMapApp {
         if (confirm('Are you sure you want to clear all customer data? This action cannot be undone.')) {
             localStorage.removeItem('customerMapData');
             localStorage.removeItem('isEssentialData');
+            localStorage.removeItem('originalRecordCount');
             this.customers = [];
             this.filteredCustomers = [];
             this.selectedCustomerIndex = -1;
@@ -624,6 +696,7 @@ class CustomerMapApp {
             if (this.markerClusterGroup) {
                 this.markerClusterGroup.clearLayers();
             }
+            this.markersMap.clear();
             
             this.showHomePage();
             
