@@ -1,7 +1,7 @@
 {
-  "name": "customer-map-viewer",
+  "name": "geopoint",
   "version": "1.0.0",
-  "description": "A frontend application to visualize customer data on a map based on Excel file input with latitude and longitude coordinates",
+  "description": "A high-performance, frontend-only web application to visualize large sets of customer data from a CSV file on an interactive map.",
   "main": "index.html",
   "scripts": {
     "start": "python3 -m http.server 8000",
@@ -9,13 +9,16 @@
     "deploy": "gh-pages -d .",
     "test": "echo \"No tests specified\" && exit 0"
   },
-  "keywords": ["map", "excel", "customer", "visualization", "leaflet", "frontend"],
+  "keywords": ["map", "csv", "customer", "visualization", "leaflet", "frontend", "geopoint", "indexeddb"],
   "author": "Vishal Nagda",
   "license": "MIT",
-  "homepage": "https://github.com/yourusername/customer-map-viewer",
+  "homepage": "https://vishalnagda1.github.io/geopoint/",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/customer-map-viewer.git"
+    "url": "git+https://github.com/vishalnagda1/geopoint.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vishalnagda1/geopoint/issues"
   },
   "devDependencies": {
     "gh-pages": "^6.1.1"
