@@ -1,12 +1,15 @@
 class CustomerMapApp {
     constructor() {
         this.customers = [];
+        this.filteredCustomers = [];
         this.map = null;
-        this.markers = [];
         this.markerClusterGroup = null;
         this.requiredColumns = ['accno', 'name', 'longitude', 'lattitude'];
         this.batchSize = 1000; // Process 1000 records at a time
         this.selectedCustomerIndex = -1; // Track selected customer
+        this.renderBatchSize = 100; // Render markers in smaller batches
+        this.visibleCustomerItems = []; // Track visible customer list items
+        this.searchTimeout = null;
         
         this.init();
     }
@@ -27,6 +30,12 @@ class CustomerMapApp {
         uploadArea.addEventListener('drop', this.handleDrop.bind(this));
         fileInput.addEventListener('change', this.handleFileSelect.bind(this));
 
+        // Search functionality
+        const searchInput = document.getElementById('customerSearch');
+        if (searchInput) {
+            searchInput.addEventListener('input', this.handleSearch.bind(this));
+        }
+
         // Burger menu events
         const burgerIcon = document.getElementById('burgerIcon');
         const menuContent = document.getElementById('menuContent');
@@ -46,6 +55,27 @@ class CustomerMapApp {
                 menuContent.classList.remove('active');
             }
         });
+    }
+
+    handleSearch(e) {
+        // Debounce search to avoid too many calls
+        clearTimeout(this.searchTimeout);
+        this.searchTimeout = setTimeout(() => {
+            const searchTerm = e.target.value.toLowerCase().trim();
+            this.filterCustomers(searchTerm);
+        }, 300);
+    }
+
+    filterCustomers(searchTerm) {
+        if (!searchTerm) {
+            this.filteredCustomers = this.customers.slice(0, 50); // Show only first 50 by default
+        } else {
+            this.filteredCustomers = this.customers.filter(customer => 
+                customer.accno.toLowerCase().includes(searchTerm) ||
+                customer.name.toLowerCase().includes(searchTerm)
+            ).slice(0, 50); // Limit search results to 50
+        }
+        this.updateCustomerList();
     }
 
     handleDragOver(e) {
@@ -101,6 +131,7 @@ class CustomerMapApp {
             }
 
             this.customers = validatedData;
+            this.filteredCustomers = validatedData.slice(0, 50); // Show only first 50 initially
             console.log('Saving to localStorage...');
             await this.saveToLocalStorage();
             console.log('Data saved, showing map...');
@@ -242,7 +273,6 @@ class CustomerMapApp {
     }
 
     getColumnValue(row, columnName) {
-        // Try to find the column with case-insensitive matching
         const key = Object.keys(row).find(k => 
             k.toLowerCase().trim().includes(columnName.toLowerCase())
         );
@@ -274,12 +304,12 @@ class CustomerMapApp {
     initializeMap() {
         try {
             console.log('Creating map...');
-            // Initialize map with a default view
             this.map = L.map('map', {
-                center: [24.5854, 73.7125], // Default to Rajasthan, India
+                center: [24.5854, 73.7125],
                 zoom: 6,
                 zoomControl: true,
-                scrollWheelZoom: true
+                scrollWheelZoom: true,
+                preferCanvas: true // Use canvas renderer for better performance
             });
 
             console.log('Adding tile layer...');
@@ -288,6 +318,19 @@ class CustomerMapApp {
                 maxZoom: 18,
                 minZoom: 3
             }).addTo(this.map);
+
+            // Initialize marker cluster group
+            this.markerClusterGroup = L.markerClusterGroup({
+                chunkedLoading: true,
+                chunkInterval: 200,
+                chunkDelay: 50,
+                maxClusterRadius: 50,
+                spiderfyOnMaxZoom: true,
+                showCoverageOnHover: false,
+                zoomToBoundsOnClick: true
+            });
+            
+            this.map.addLayer(this.markerClusterGroup);
 
             // Force map to resize after initialization
             setTimeout(() => {
@@ -302,42 +345,43 @@ class CustomerMapApp {
     }
 
     async displayCustomersOnMap() {
-        if (!this.map) {
-            console.error('Map not initialized');
+        if (!this.map || !this.markerClusterGroup) {
+            console.error('Map or cluster group not initialized');
             return;
         }
 
-        console.log(`Displaying ${this.customers.length} customers on map...`);
+        console.log(`Displaying ${this.customers.length} customers on map with clustering...`);
         
         // Clear existing markers
-        this.markers.forEach(marker => this.map.removeLayer(marker));
-        this.markers = [];
+        this.markerClusterGroup.clearLayers();
 
         if (this.customers.length === 0) return;
 
-        // For large datasets, add markers in batches
+        // Add markers in batches for better performance
+        const totalBatches = Math.ceil(this.customers.length / this.renderBatchSize);
         const bounds = [];
-        const totalBatches = Math.ceil(this.customers.length / this.batchSize);
         
         for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-            const start = batchIndex * this.batchSize;
-            const end = Math.min(start + this.batchSize, this.customers.length);
+            const start = batchIndex * this.renderBatchSize;
+            const end = Math.min(start + this.renderBatchSize, this.customers.length);
             const batch = this.customers.slice(start, end);
+            
+            const markers = [];
             
             batch.forEach(customer => {
                 try {
-                    const marker = L.marker([customer.latitude, customer.longitude])
-                        .addTo(this.map);
-                    
+                    const marker = L.marker([customer.latitude, customer.longitude]);
                     const popupContent = this.createPopupContent(customer);
                     marker.bindPopup(popupContent);
-                    
-                    this.markers.push(marker);
+                    markers.push(marker);
                     bounds.push([customer.latitude, customer.longitude]);
                 } catch (error) {
-                    console.error('Error adding marker for customer:', customer.accno, error);
+                    console.error('Error creating marker for customer:', customer.accno, error);
                 }
             });
+            
+            // Add batch of markers to cluster group
+            this.markerClusterGroup.addLayers(markers);
             
             // Allow UI to update between batches
             if (batchIndex < totalBatches - 1) {
@@ -375,28 +419,44 @@ class CustomerMapApp {
 
     updateCustomerList() {
         const customerList = document.getElementById('customerList');
-        customerList.innerHTML = '';
+        
+        // Clear existing items efficiently
+        while (customerList.firstChild) {
+            customerList.removeChild(customerList.firstChild);
+        }
 
-        if (this.customers.length === 0) return;
+        if (this.filteredCustomers.length === 0 && this.customers.length > 0) {
+            const noResults = document.createElement('div');
+            noResults.className = 'customer-item';
+            noResults.textContent = 'No customers found';
+            noResults.style.fontStyle = 'italic';
+            noResults.style.pointerEvents = 'none';
+            customerList.appendChild(noResults);
+            return;
+        }
+
+        if (this.filteredCustomers.length === 0) return;
 
         // Add header
         const header = document.createElement('div');
         header.className = 'menu-item';
-        header.innerHTML = '<strong>Customers:</strong>';
+        header.innerHTML = `<strong>Customers (${this.filteredCustomers.length} shown):</strong>`;
         header.style.pointerEvents = 'none';
         header.style.background = 'rgba(0, 0, 0, 0.05)';
         customerList.appendChild(header);
 
-        // Add customer items (limit to first 100 for performance)
-        const displayLimit = Math.min(100, this.customers.length);
-        for (let i = 0; i < displayLimit; i++) {
-            const customer = this.customers[i];
+        // Use document fragment for better performance
+        const fragment = document.createDocumentFragment();
+
+        // Add customer items
+        this.filteredCustomers.forEach((customer, index) => {
+            const originalIndex = this.customers.indexOf(customer);
             const item = document.createElement('div');
             item.className = 'customer-item';
             item.textContent = `${customer.accno} - ${customer.name}`;
             
             // Add selected class if this is the selected customer
-            if (i === this.selectedCustomerIndex) {
+            if (originalIndex === this.selectedCustomerIndex) {
                 item.classList.add('selected');
             }
             
@@ -408,38 +468,46 @@ class CustomerMapApp {
                 
                 // Add selected class to clicked item
                 item.classList.add('selected');
-                this.selectedCustomerIndex = i;
+                this.selectedCustomerIndex = originalIndex;
                 
-                this.focusOnCustomer(i);
+                this.focusOnCustomer(originalIndex);
                 // Close menu
                 document.getElementById('burgerIcon').classList.remove('active');
                 document.getElementById('menuContent').classList.remove('active');
             });
-            customerList.appendChild(item);
-        }
+            
+            fragment.appendChild(item);
+        });
 
-        if (this.customers.length > displayLimit) {
-            const moreItem = document.createElement('div');
-            moreItem.className = 'customer-item';
-            moreItem.textContent = `... and ${this.customers.length - displayLimit} more`;
-            moreItem.style.fontStyle = 'italic';
-            moreItem.style.pointerEvents = 'none';
-            customerList.appendChild(moreItem);
+        customerList.appendChild(fragment);
+
+        // Show info about total customers if filtered
+        if (this.filteredCustomers.length < this.customers.length) {
+            const infoItem = document.createElement('div');
+            infoItem.className = 'customer-item';
+            infoItem.textContent = `Total: ${this.customers.length} customers loaded`;
+            infoItem.style.fontStyle = 'italic';
+            infoItem.style.fontSize = '12px';
+            infoItem.style.pointerEvents = 'none';
+            infoItem.style.background = 'rgba(0, 0, 0, 0.02)';
+            customerList.appendChild(infoItem);
         }
     }
 
     focusOnCustomer(index) {
-        if (index >= 0 && index < this.customers.length && index < this.markers.length) {
+        if (index >= 0 && index < this.customers.length) {
             const customer = this.customers[index];
-            const marker = this.markers[index];
             
             // Center map on customer and zoom in
             this.map.setView([customer.latitude, customer.longitude], 15);
             
-            // Open popup
-            if (marker) {
-                marker.openPopup();
-            }
+            // Find and open the marker popup
+            this.markerClusterGroup.eachLayer((layer) => {
+                if (layer.getLatLng().lat === customer.latitude && 
+                    layer.getLatLng().lng === customer.longitude) {
+                    layer.openPopup();
+                }
+            });
         }
     }
 
@@ -450,45 +518,22 @@ class CustomerMapApp {
 
     async saveToLocalStorage() {
         try {
-            // For large datasets, we need to be careful with localStorage limits
-            const dataString = JSON.stringify(this.customers);
-            const sizeInMB = new Blob([dataString]).size / (1024 * 1024);
+            // For large datasets, save only essential data
+            const essentialData = this.customers.map(customer => ({
+                accno: customer.accno,
+                name: customer.name,
+                longitude: customer.longitude,
+                latitude: customer.latitude,
+                tariffcode: customer.tariffcode,
+                consumerstatus: customer.consumerstatus
+            }));
             
-            console.log(`Data size: ${sizeInMB.toFixed(2)} MB`);
-            
-            if (sizeInMB > 5) { // localStorage typically has 5-10MB limit
-                // Save only essential data for large datasets
-                const essentialData = this.customers.map(customer => ({
-                    accno: customer.accno,
-                    name: customer.name,
-                    longitude: customer.longitude,
-                    latitude: customer.latitude
-                }));
-                localStorage.setItem('customerMapData', JSON.stringify(essentialData));
-                localStorage.setItem('isEssentialData', 'true');
-                console.log('Saved essential data due to size constraints');
-            } else {
-                localStorage.setItem('customerMapData', dataString);
-                localStorage.setItem('isEssentialData', 'false');
-                console.log('Saved complete data to localStorage');
-            }
+            localStorage.setItem('customerMapData', JSON.stringify(essentialData));
+            localStorage.setItem('isEssentialData', 'true');
+            console.log('Saved essential data to localStorage');
         } catch (error) {
             console.error('Failed to save data to localStorage:', error);
-            // Try saving essential data only
-            try {
-                const essentialData = this.customers.map(customer => ({
-                    accno: customer.accno,
-                    name: customer.name,
-                    longitude: customer.longitude,
-                    latitude: customer.latitude
-                }));
-                localStorage.setItem('customerMapData', JSON.stringify(essentialData));
-                localStorage.setItem('isEssentialData', 'true');
-                console.log('Saved essential data as fallback');
-            } catch (fallbackError) {
-                console.error('Failed to save even essential data:', fallbackError);
-                this.showError('Warning: Unable to save data to browser storage. Data will be lost on page refresh.');
-            }
+            this.showError('Warning: Unable to save data to browser storage. Data will be lost on page refresh.');
         }
     }
 
@@ -497,6 +542,7 @@ class CustomerMapApp {
             const storedData = localStorage.getItem('customerMapData');
             if (storedData) {
                 this.customers = JSON.parse(storedData);
+                this.filteredCustomers = this.customers.slice(0, 50); // Show first 50 initially
                 if (this.customers.length > 0) {
                     console.log(`Loaded ${this.customers.length} customers from localStorage`);
                     this.showMapPage();
@@ -509,7 +555,6 @@ class CustomerMapApp {
             localStorage.removeItem('isEssentialData');
         }
         
-        // Show home page if no valid stored data
         this.showHomePage();
     }
 
@@ -518,11 +563,11 @@ class CustomerMapApp {
             localStorage.removeItem('customerMapData');
             localStorage.removeItem('isEssentialData');
             this.customers = [];
-            this.selectedCustomerIndex = -1; // Reset selected customer
+            this.filteredCustomers = [];
+            this.selectedCustomerIndex = -1;
             
-            if (this.map) {
-                this.markers.forEach(marker => this.map.removeLayer(marker));
-                this.markers = [];
+            if (this.markerClusterGroup) {
+                this.markerClusterGroup.clearLayers();
             }
             
             this.showHomePage();
@@ -537,11 +582,14 @@ class CustomerMapApp {
         document.getElementById('homePage').style.display = 'flex';
         document.getElementById('mapPage').style.display = 'none';
         
-        // Reset selected customer index
         this.selectedCustomerIndex = -1;
-        
-        // Reset file input
         document.getElementById('fileInput').value = '';
+        
+        // Clear search
+        const searchInput = document.getElementById('customerSearch');
+        if (searchInput) {
+            searchInput.value = '';
+        }
     }
 
     showError(message) {

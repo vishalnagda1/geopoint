@@ -104,6 +104,26 @@ body {
     overflow-y: auto;
 }
 
+.search-container {
+    padding: 10px 15px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.search-container input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 5px;
+    font-size: 14px;
+    background: white;
+}
+
+.search-container input:focus {
+    outline: none;
+    border-color: #4CAF50;
+    box-shadow: 0 0 5px rgba(76, 175, 80, 0.3);
+}
+
 .customer-item {
     padding: 10px 20px;
     border-bottom: 1px solid rgba(0, 0, 0, 0.1);
