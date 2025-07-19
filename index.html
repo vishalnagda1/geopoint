@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Map Viewer</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Burger Menu -->
+    <div class="burger-menu">
+        <div class="burger-icon" id="burgerIcon">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+        <div class="menu-content" id="menuContent">
+            <div class="menu-item" id="clearData">
+                <i class="icon">🗑️</i>
+                Clear Data
+            </div>
+            <div class="customer-list" id="customerList">
+                <!-- Customer list will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Home Page -->
+    <div class="page" id="homePage">
+        <div class="home-container">
+            <h1>Customer Map Viewer</h1>
+            <p>Upload your Excel file containing customer data with latitude and longitude information.</p>
+            
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📁</div>
+                <p>Click to upload or drag and drop your Excel file</p>
+                <input type="file" id="fileInput" accept=".xlsx,.xls" hidden>
+            </div>
+            
+            <div class="error-message" id="errorMessage"></div>
+            <div class="loading" id="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Processing your file...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map Page -->
+    <div class="page" id="mapPage" style="display: none;">
+        <div id="map"></div>
+        <div class="map-info">
+            <div class="customer-count" id="customerCount"></div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

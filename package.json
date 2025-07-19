@@ -1,0 +1,23 @@
+{
+  "name": "customer-map-viewer",
+  "version": "1.0.0",
+  "description": "A frontend application to visualize customer data on a map based on Excel file input with latitude and longitude coordinates",
+  "main": "index.html",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "serve": "python3 -m http.server 8000",
+    "deploy": "gh-pages -d .",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "keywords": ["map", "excel", "customer", "visualization", "leaflet", "frontend"],
+  "author": "Vishal Nagda",
+  "license": "MIT",
+  "homepage": "https://github.com/yourusername/customer-map-viewer",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/customer-map-viewer.git"
+  },
+  "devDependencies": {
+    "gh-pages": "^6.1.1"
+  }
+}
