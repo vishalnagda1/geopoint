@@ -584,32 +584,22 @@ class CustomerMapApp {
             const customer = this.customers[index];
             console.log(`Focusing on customer: ${customer.accno} at ${customer.latitude}, ${customer.longitude}`);
             
-            // Center map on customer and zoom in
-            this.map.setView([customer.latitude, customer.longitude], 16);
-            
-            // Find the specific marker for this customer
             const marker = this.markersMap.get(customer.accno);
+            
             if (marker) {
-                console.log('Found marker, opening popup');
+                console.log('Found marker, using zoomToShowLayer to reveal it.');
                 
-                // If marker is in a cluster, we need to spiderfy first
-                const cluster = this.markerClusterGroup.getVisibleParent(marker);
-                if (cluster && cluster !== marker) {
-                    // Marker is clustered, zoom in more to uncluster it
-                    setTimeout(() => {
-                        this.map.setView([customer.latitude, customer.longitude], 18);
-                        // Try to open popup after zoom
-                        setTimeout(() => {
-                            marker.openPopup();
-                        }, 500);
-                    }, 300);
-                } else {
-                    // Marker is not clustered, open popup directly
+                // This is the correct way to zoom to a marker within a cluster group.
+                // It will zoom/pan the map and spiderfy the cluster if needed.
+                this.markerClusterGroup.zoomToShowLayer(marker, () => {
+                    // This callback is executed after the zoom/spiderfy animation is complete.
+                    console.log(`Animation complete for ${customer.accno}, opening popup.`);
                     marker.openPopup();
-                }
+                });
             } else {
                 console.log('Marker not found for customer:', customer.accno);
-                // Create a temporary marker if the original isn't found
+                // Fallback for cases where the marker might not be in the map (should be rare)
+                this.map.setView([customer.latitude, customer.longitude], 18);
                 const tempMarker = L.marker([customer.latitude, customer.longitude])
                     .addTo(this.map);
                 const popupContent = this.createPopupContent(customer);
