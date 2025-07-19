@@ -132,6 +132,10 @@ class CustomerMapApp {
 
             this.customers = validatedData;
             this.filteredCustomers = validatedData.slice(0, 50); // Show only first 50 initially
+            
+            // Store original count for display purposes
+            localStorage.setItem('originalRecordCount', data.length.toString());
+            
             console.log('Saving to localStorage...');
             await this.saveToLocalStorage();
             console.log('Data saved, showing map...');
@@ -228,6 +232,7 @@ class CustomerMapApp {
         }
 
         const validCustomers = [];
+        const invalidRecords = [];
         const totalBatches = Math.ceil(data.length / this.batchSize);
         
         for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
@@ -235,30 +240,55 @@ class CustomerMapApp {
             const end = Math.min(start + this.batchSize, data.length);
             const batch = data.slice(start, end);
             
-            const batchValidated = batch.filter(row => {
+            batch.forEach(row => {
                 const accno = this.getColumnValue(row, 'accno');
                 const name = this.getColumnValue(row, 'name');
                 const longitude = this.getColumnValue(row, 'longitude');
                 const latitude = this.getColumnValue(row, 'lattitude');
 
-                return accno && name && 
-                       this.isValidCoordinate(longitude, -180, 180) && 
-                       this.isValidCoordinate(latitude, -90, 90);
-            }).map(row => ({
-                accno: this.getColumnValue(row, 'accno'),
-                name: this.getColumnValue(row, 'name'),
-                longitude: parseFloat(this.getColumnValue(row, 'longitude')),
-                latitude: parseFloat(this.getColumnValue(row, 'lattitude')),
-                tariffcode: this.getColumnValue(row, 'tariffcode') || '',
-                kworhp: this.getColumnValue(row, 'kworhp') || '',
-                consumerstatus: this.getColumnValue(row, 'consumerstatus') || '',
-                phase: this.getColumnValue(row, 'phase') || '',
-                meterno: this.getColumnValue(row, 'meterno') || '',
-                consumption: this.getColumnValue(row, 'consumption') || '',
-                rdngmonth: this.getColumnValue(row, 'rdngmonth') || ''
-            }));
-            
-            validCustomers.push(...batchValidated);
+                // Log detailed validation info
+                const validationInfo = {
+                    accno: accno,
+                    name: name,
+                    hasAccno: !!accno,
+                    hasName: !!name,
+                    longitude: longitude,
+                    latitude: latitude,
+                    hasValidLongitude: this.isValidCoordinate(longitude, -180, 180),
+                    hasValidLatitude: this.isValidCoordinate(latitude, -90, 90)
+                };
+
+                if (accno && name && 
+                    this.isValidCoordinate(longitude, -180, 180) && 
+                    this.isValidCoordinate(latitude, -90, 90)) {
+                    
+                    // Valid record
+                    validCustomers.push({
+                        accno: accno,
+                        name: name,
+                        longitude: parseFloat(longitude),
+                        latitude: parseFloat(latitude),
+                        tariffcode: this.getColumnValue(row, 'tariffcode') || '',
+                        kworhp: this.getColumnValue(row, 'kworhp') || '',
+                        consumerstatus: this.getColumnValue(row, 'consumerstatus') || '',
+                        phase: this.getColumnValue(row, 'phase') || '',
+                        meterno: this.getColumnValue(row, 'meterno') || '',
+                        consumption: this.getColumnValue(row, 'consumption') || '',
+                        rdngmonth: this.getColumnValue(row, 'rdngmonth') || ''
+                    });
+                    console.log(`✅ Valid record: ${accno} - ${name}`);
+                } else {
+                    // Invalid record - log why it failed
+                    invalidRecords.push(validationInfo);
+                    let reason = [];
+                    if (!accno) reason.push('missing account number');
+                    if (!name) reason.push('missing name');
+                    if (!this.isValidCoordinate(longitude, -180, 180)) reason.push(`invalid longitude (${longitude})`);
+                    if (!this.isValidCoordinate(latitude, -90, 90)) reason.push(`invalid latitude (${latitude})`);
+                    
+                    console.log(`❌ Invalid record: ${accno || 'NO_ACCNO'} - ${name || 'NO_NAME'} | Reason: ${reason.join(', ')}`);
+                }
+            });
             
             // Update progress
             const progress = Math.round(((batchIndex + 1) / totalBatches) * 100);
@@ -268,7 +298,18 @@ class CustomerMapApp {
             await new Promise(resolve => setTimeout(resolve, 10));
         }
 
-        console.log(`Validated ${validCustomers.length} customers out of ${data.length} total records`);
+        console.log(`\n📊 VALIDATION SUMMARY:`);
+        console.log(`Total records processed: ${data.length}`);
+        console.log(`Valid records (with coordinates): ${validCustomers.length}`);
+        console.log(`Invalid records (missing coordinates): ${invalidRecords.length}`);
+        
+        if (invalidRecords.length > 0) {
+            console.log(`\n❌ Records without coordinates:`);
+            invalidRecords.forEach(record => {
+                console.log(`   ${record.accno} - ${record.name} (lon: "${record.longitude}", lat: "${record.latitude}")`);
+            });
+        }
+
         return validCustomers;
     }
 
@@ -513,7 +554,21 @@ class CustomerMapApp {
 
     updateCustomerCount() {
         const customerCount = document.getElementById('customerCount');
-        customerCount.textContent = `Total Customers: ${this.customers.length}`;
+        const totalProcessed = this.customers.length;
+        
+        // Get info about how many records were in the original file (if available)
+        const originalCount = localStorage.getItem('originalRecordCount');
+        
+        if (originalCount && parseInt(originalCount) > totalProcessed) {
+            customerCount.innerHTML = `
+                <div>Valid Customers: ${totalProcessed}</div>
+                <div style="font-size: 12px; opacity: 0.8;">
+                    ${parseInt(originalCount) - totalProcessed} records excluded (missing coordinates)
+                </div>
+            `;
+        } else {
+            customerCount.textContent = `Total Customers: ${totalProcessed}`;
+        }
     }
 
     async saveToLocalStorage() {
