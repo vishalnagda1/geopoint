@@ -6,6 +6,7 @@ class CustomerMapApp {
         this.markerClusterGroup = null;
         this.requiredColumns = ['accno', 'name', 'longitude', 'lattitude'];
         this.batchSize = 1000; // Process 1000 records at a time
+        this.selectedCustomerIndex = -1; // Track selected customer
         
         this.init();
     }
@@ -393,7 +394,22 @@ class CustomerMapApp {
             const item = document.createElement('div');
             item.className = 'customer-item';
             item.textContent = `${customer.accno} - ${customer.name}`;
+            
+            // Add selected class if this is the selected customer
+            if (i === this.selectedCustomerIndex) {
+                item.classList.add('selected');
+            }
+            
             item.addEventListener('click', () => {
+                // Remove selected class from all items
+                customerList.querySelectorAll('.customer-item').forEach(el => {
+                    el.classList.remove('selected');
+                });
+                
+                // Add selected class to clicked item
+                item.classList.add('selected');
+                this.selectedCustomerIndex = i;
+                
                 this.focusOnCustomer(i);
                 // Close menu
                 document.getElementById('burgerIcon').classList.remove('active');
@@ -502,6 +518,7 @@ class CustomerMapApp {
             localStorage.removeItem('customerMapData');
             localStorage.removeItem('isEssentialData');
             this.customers = [];
+            this.selectedCustomerIndex = -1; // Reset selected customer
             
             if (this.map) {
                 this.markers.forEach(marker => this.map.removeLayer(marker));
@@ -519,6 +536,9 @@ class CustomerMapApp {
     showHomePage() {
         document.getElementById('homePage').style.display = 'flex';
         document.getElementById('mapPage').style.display = 'none';
+        
+        // Reset selected customer index
+        this.selectedCustomerIndex = -1;
         
         // Reset file input
         document.getElementById('fileInput').value = '';

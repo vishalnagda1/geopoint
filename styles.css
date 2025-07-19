@@ -14,7 +14,7 @@ body {
 .burger-menu {
     position: fixed;
     top: 20px;
-    left: 20px;
+    right: 20px;
     z-index: 1000;
 }
 
@@ -61,7 +61,7 @@ body {
 .menu-content {
     position: absolute;
     top: 50px;
-    left: 0;
+    right: 0;
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(10px);
     border-radius: 10px;
@@ -110,10 +110,25 @@ body {
     cursor: pointer;
     transition: background 0.3s ease;
     font-size: 14px;
+    position: relative;
 }
 
 .customer-item:hover {
     background: rgba(0, 0, 0, 0.05);
+}
+
+.customer-item.selected {
+    background: rgba(76, 175, 80, 0.1);
+    border-left: 4px solid #4CAF50;
+    font-weight: bold;
+}
+
+.customer-item.selected::after {
+    content: "✓";
+    position: absolute;
+    right: 15px;
+    color: #4CAF50;
+    font-weight: bold;
 }
 
 /* Page Styles */
@@ -265,7 +280,7 @@ body {
     
     .burger-menu {
         top: 15px;
-        left: 15px;
+        right: 15px;
     }
     
     .menu-content {
@@ -276,6 +291,7 @@ body {
         bottom: 15px;
         right: 15px;
         left: 15px;
+        text-align: center;
     }
 }
 
