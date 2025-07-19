@@ -112,8 +112,8 @@ class CustomerMapApp {
 
     async processFile(file) {
         // Validate file type
-        if (!file.name.match(/\.csv$/i) && file.type !== 'text/csv') {
-            this.showError('Please upload a valid CSV file (.csv)');
+        if (!file.name.match(/\.(csv|xlsx|xls)$/i)) {
+            this.showError('Please upload a valid CSV or Excel file (.csv, .xlsx, .xls)');
             return;
         }
 
@@ -123,11 +123,17 @@ class CustomerMapApp {
 
         try {
             console.log('Starting file processing...');
-            const csvText = await this.readCSVFile(file);
-            console.log('File read successfully, parsing CSV...');
+            let data;
+            if (file.name.match(/\.csv$/i)) {
+                const csvText = await this.readCSVFile(file);
+                console.log('File read successfully, parsing CSV...');
+                data = await this.parseCSV(csvText);
+            } else {
+                console.log('File read successfully, parsing Excel...');
+                data = await this.parseExcelFile(file);
+            }
             
-            const data = await this.parseCSV(csvText);
-            console.log(`Parsed ${data.length} rows from CSV`);
+            console.log(`Parsed ${data.length} rows from file`);
             
             const validatedData = await this.validateDataInBatches(data);
             console.log(`Validated ${validatedData.length} records`);
@@ -174,6 +180,29 @@ class CustomerMapApp {
             };
             
             reader.readAsText(file);
+        });
+    }
+
+    async parseExcelFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const json = XLSX.utils.sheet_to_json(worksheet);
+                    resolve(json);
+                } catch (error) {
+                    console.error('Excel parsing error:', error);
+                    reject(new Error('Failed to parse Excel file. Please ensure it is not corrupted.'));
+                }
+            };
+            reader.onerror = () => {
+                reject(new Error('Failed to read the file'));
+            };
+            reader.readAsArrayBuffer(file);
         });
     }
 

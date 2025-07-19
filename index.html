@@ -33,12 +33,12 @@
     <div class="page" id="homePage">
         <div class="home-container">
             <h1>GeoPoint</h1>
-            <p>Upload your CSV file containing customer data with latitude and longitude information.</p>
+            <p>Upload your CSV or Excel file containing customer data with latitude and longitude information.</p>
             
             <div class="upload-area" id="uploadArea">
                 <div class="upload-icon">📁</div>
-                <p>Click to upload or drag and drop your CSV file</p>
-                <input type="file" id="fileInput" accept=".csv" hidden>
+                <p>Click to upload or drag and drop your CSV/XLSX file</p>
+                <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" hidden>
             </div>
             
             <div class="error-message" id="errorMessage"></div>
@@ -64,6 +64,7 @@
     <!-- Scripts -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
     <script src="script.js"></script>
