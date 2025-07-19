@@ -1,4 +1,4 @@
-# Customer Map Viewer
+# GeoPoint
 
 A high-performance, frontend-only web application to visualize large sets of customer data from a CSV file on an interactive map. This tool is designed to handle tens of thousands of data points smoothly without a backend, using modern browser technologies for data storage and rendering.
 
@@ -20,8 +20,8 @@ To run the application locally, you need Python 3 installed to serve the files.
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/yourusername/customer-map-viewer.git
-    cd customer-map-viewer
+    git clone https://github.com/vishalnagda1/geopoint.git
+    cd geopoint
     ```
 
 2.  **Start the local server:**
