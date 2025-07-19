@@ -1,23 +1,23 @@
 class CustomerMapApp {
     constructor() {
-        this.customers = [];
+        this.dbManager = new IndexedDBManager('CustomerDB', 'customers', 1);
         this.filteredCustomers = [];
         this.map = null;
         this.markerClusterGroup = null;
         this.markersMap = new Map(); // Store markers by customer ID for quick lookup
         this.requiredColumns = ['accno', 'name', 'longitude', 'lattitude'];
         this.batchSize = 1000; // Process 1000 records at a time
-        this.selectedCustomerIndex = -1; // Track selected customer
+        this.selectedCustomerAccno = null; // Track selected customer by accno
         this.renderBatchSize = 100; // Render markers in smaller batches
-        this.visibleCustomerItems = []; // Track visible customer list items
         this.searchTimeout = null;
+        this.totalCustomerCount = 0;
         
         this.init();
     }
 
-    init() {
+    async init() {
         this.bindEvents();
-        this.checkStoredData();
+        await this.checkStoredData();
     }
 
     bindEvents() {
@@ -67,23 +67,19 @@ class CustomerMapApp {
         }, 300);
     }
 
-    filterCustomers(searchTerm) {
+    async filterCustomers(searchTerm) {
         if (!searchTerm) {
-            this.filteredCustomers = this.customers.slice(0, 50); // Show only first 50 by default
+            this.filteredCustomers = await this.dbManager.getDataSlice(50);
         } else {
-            this.filteredCustomers = this.customers.filter(customer => 
-                customer.accno.toLowerCase().includes(searchTerm) ||
-                customer.name.toLowerCase().includes(searchTerm)
-            ).slice(0, 50); // Limit search results to 50
+            this.filteredCustomers = await this.dbManager.searchData(searchTerm.toLowerCase(), 50);
         }
         this.updateCustomerList();
         
         // If there's exactly one result, auto-focus on it
         if (this.filteredCustomers.length === 1) {
             const customer = this.filteredCustomers[0];
-            const originalIndex = this.customers.indexOf(customer);
             setTimeout(() => {
-                this.focusOnCustomer(originalIndex);
+                this.focusOnCustomer(customer);
             }, 500);
         }
     }
@@ -139,17 +135,19 @@ class CustomerMapApp {
             if (validatedData.length === 0) {
                 throw new Error('No valid customer data found with required columns and coordinates');
             }
+            
+            // Clear old data from DB before adding new
+            await this.dbManager.clearData();
+            await this.dbManager.addDataInBatches(validatedData);
+            this.totalCustomerCount = await this.dbManager.getCount();
 
-            this.customers = validatedData;
-            this.filteredCustomers = validatedData.slice(0, 50); // Show only first 50 initially
+            this.filteredCustomers = await this.dbManager.getDataSlice(50);
             
             // Store original count for display purposes
             localStorage.setItem('originalRecordCount', data.length.toString());
             
-            console.log('Saving to localStorage...');
-            await this.saveToLocalStorage();
-            console.log('Data saved, showing map...');
-            this.showMapPage();
+            console.log('Data saved to IndexedDB, showing map...');
+            this.showMapPage(validatedData); // Pass data directly to display
             
         } catch (error) {
             console.error('Error processing file:', error);
@@ -335,18 +333,23 @@ class CustomerMapApp {
         return !isNaN(num) && num >= min && num <= max && value !== '' && value != null;
     }
 
-    showMapPage() {
+    showMapPage(customersToDisplay = null) {
         console.log('Showing map page...');
         document.getElementById('homePage').style.display = 'none';
         document.getElementById('mapPage').style.display = 'block';
         
         // Small delay to ensure the map container is visible
-        setTimeout(() => {
+        setTimeout(async () => {
             if (!this.map) {
                 console.log('Initializing map...');
                 this.initializeMap();
             }
-            this.displayCustomersOnMap();
+            
+            // If specific customers are passed (e.g., after upload), display them.
+            // Otherwise, load the initial set from the DB.
+            const customers = customersToDisplay || await this.dbManager.getDataSlice(5000); // Load up to 5000 markers initially
+            
+            this.displayCustomersOnMap(customers);
             this.updateCustomerList();
             this.updateCustomerCount();
         }, 100);
@@ -408,39 +411,37 @@ class CustomerMapApp {
         }
     }
 
-    async displayCustomersOnMap() {
+    async displayCustomersOnMap(customers) {
         if (!this.map || !this.markerClusterGroup) {
             console.error('Map or cluster group not initialized');
             return;
         }
 
-        console.log(`Displaying ${this.customers.length} customers on map with clustering...`);
+        console.log(`Displaying ${customers.length} customers on map with clustering...`);
         
         // Clear existing markers and map
         this.markerClusterGroup.clearLayers();
         this.markersMap.clear();
 
-        if (this.customers.length === 0) return;
+        if (customers.length === 0) return;
 
         // Add markers in batches for better performance
-        const totalBatches = Math.ceil(this.customers.length / this.renderBatchSize);
+        const totalBatches = Math.ceil(customers.length / this.renderBatchSize);
         const bounds = [];
         
         for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
             const start = batchIndex * this.renderBatchSize;
-            const end = Math.min(start + this.renderBatchSize, this.customers.length);
-            const batch = this.customers.slice(start, end);
+            const end = Math.min(start + this.renderBatchSize, customers.length);
+            const batch = customers.slice(start, end);
             
             const markers = [];
             
-            batch.forEach((customer, localIndex) => {
+            batch.forEach((customer) => {
                 try {
-                    const globalIndex = start + localIndex;
                     const marker = L.marker([customer.latitude, customer.longitude]);
                     
                     // Store customer data in marker for easy access
                     marker.customerData = customer;
-                    marker.customerIndex = globalIndex;
                     
                     const popupContent = this.createPopupContent(customer);
                     marker.bindPopup(popupContent);
@@ -534,14 +535,13 @@ class CustomerMapApp {
         const fragment = document.createDocumentFragment();
 
         // Add customer items
-        this.filteredCustomers.forEach((customer, index) => {
-            const originalIndex = this.customers.indexOf(customer);
+        this.filteredCustomers.forEach((customer) => {
             const item = document.createElement('div');
             item.className = 'customer-item';
             item.textContent = `${customer.accno} - ${customer.name}`;
             
             // Add selected class if this is the selected customer
-            if (originalIndex === this.selectedCustomerIndex) {
+            if (customer.accno === this.selectedCustomerAccno) {
                 item.classList.add('selected');
             }
             
@@ -553,9 +553,9 @@ class CustomerMapApp {
                 
                 // Add selected class to clicked item
                 item.classList.add('selected');
-                this.selectedCustomerIndex = originalIndex;
+                this.selectedCustomerAccno = customer.accno;
                 
-                this.focusOnCustomer(originalIndex);
+                this.focusOnCustomer(customer);
                 // Close menu
                 document.getElementById('burgerIcon').classList.remove('active');
                 document.getElementById('menuContent').classList.remove('active');
@@ -567,10 +567,10 @@ class CustomerMapApp {
         customerList.appendChild(fragment);
 
         // Show info about total customers if filtered
-        if (this.filteredCustomers.length < this.customers.length) {
+        if (this.filteredCustomers.length < this.totalCustomerCount) {
             const infoItem = document.createElement('div');
             infoItem.className = 'customer-item';
-            infoItem.textContent = `Total: ${this.customers.length} customers loaded`;
+            infoItem.textContent = `Total: ${this.totalCustomerCount} customers loaded`;
             infoItem.style.fontStyle = 'italic';
             infoItem.style.fontSize = '12px';
             infoItem.style.pointerEvents = 'none';
@@ -579,9 +579,8 @@ class CustomerMapApp {
         }
     }
 
-    focusOnCustomer(index) {
-        if (index >= 0 && index < this.customers.length) {
-            const customer = this.customers[index];
+    focusOnCustomer(customer) {
+        if (customer) {
             console.log(`Focusing on customer: ${customer.accno} at ${customer.latitude}, ${customer.longitude}`);
             
             const marker = this.markersMap.get(customer.accno);
@@ -615,7 +614,7 @@ class CustomerMapApp {
 
     updateCustomerCount() {
         const customerCount = document.getElementById('customerCount');
-        const totalProcessed = this.customers.length;
+        const totalProcessed = this.totalCustomerCount;
         
         // Get info about how many records were in the original file (if available)
         const originalCount = localStorage.getItem('originalRecordCount');
@@ -632,80 +631,29 @@ class CustomerMapApp {
         }
     }
 
-    async saveToLocalStorage() {
+    async checkStoredData() {
         try {
-            // Save all data required for the popup
-            const dataToStore = this.customers.map(customer => ({
-                accno: customer.accno,
-                name: customer.name,
-                longitude: customer.longitude,
-                latitude: customer.latitude,
-                tariffcode: customer.tariffcode,
-                kworhp: customer.kworhp,
-                consumerstatus: customer.consumerstatus,
-                phase: customer.phase,
-                meterno: customer.meterno,
-                consumption: customer.consumption,
-                rdngmonth: customer.rdngmonth
-            }));
-            
-            localStorage.setItem('customerMapData', JSON.stringify(dataToStore));
-            console.log('Saved complete customer data to localStorage');
-        } catch (error) {
-            console.error('Failed to save data to localStorage:', error);
-            // Attempt to save with fewer fields if the full data is too large
-            if (error.name === 'QuotaExceededError') {
-                console.warn('LocalStorage quota exceeded. Trying to save essential data only.');
-                try {
-                    const essentialData = this.customers.map(customer => ({
-                        accno: customer.accno,
-                        name: customer.name,
-                        longitude: customer.longitude,
-                        latitude: customer.latitude,
-                        tariffcode: customer.tariffcode,
-                        consumerstatus: customer.consumerstatus
-                    }));
-                    localStorage.setItem('customerMapData', JSON.stringify(essentialData));
-                    console.log('Saved essential data to localStorage as a fallback.');
-                    this.showError('Warning: Some customer details may not be available due to storage limits.');
-                } catch (e) {
-                    this.showError('Warning: Unable to save data to browser storage. Data will be lost on page refresh.');
-                }
+            this.totalCustomerCount = await this.dbManager.getCount();
+            if (this.totalCustomerCount > 0) {
+                this.filteredCustomers = await this.dbManager.getDataSlice(50);
+                console.log(`Loaded ${this.totalCustomerCount} customers from IndexedDB`);
+                this.showMapPage();
             } else {
-                this.showError('Warning: Unable to save data to browser storage. Data will be lost on page refresh.');
-            }
-        }
-    }
-
-    checkStoredData() {
-        try {
-            const storedData = localStorage.getItem('customerMapData');
-            if (storedData) {
-                this.customers = JSON.parse(storedData);
-                this.filteredCustomers = this.customers.slice(0, 50); // Show first 50 initially
-                if (this.customers.length > 0) {
-                    console.log(`Loaded ${this.customers.length} customers from localStorage`);
-                    this.showMapPage();
-                    return;
-                }
+                this.showHomePage();
             }
         } catch (error) {
-            console.error('Failed to load data from localStorage:', error);
-            localStorage.removeItem('customerMapData');
-            localStorage.removeItem('isEssentialData');
+            console.error('Failed to load data from IndexedDB:', error);
+            this.showHomePage();
         }
-        
-        this.showHomePage();
     }
 
-    clearStoredData() {
+    async clearStoredData() {
         if (confirm('Are you sure you want to clear all customer data? This action cannot be undone.')) {
-            localStorage.removeItem('customerMapData');
-            localStorage.removeItem('isEssentialData');
+            await this.dbManager.clearData();
             localStorage.removeItem('originalRecordCount');
-            this.customers = [];
             this.filteredCustomers = [];
-            this.selectedCustomerIndex = -1;
+            this.selectedCustomerAccno = null;
+            this.totalCustomerCount = 0;
             
             if (this.markerClusterGroup) {
                 this.markerClusterGroup.clearLayers();
@@ -718,9 +666,7 @@ class CustomerMapApp {
             document.getElementById('burgerIcon').classList.remove('active');
             document.getElementById('menuContent').classList.remove('active');
         }
-    }
-
-    showHomePage() {
+    }    showHomePage() {
         document.getElementById('homePage').style.display = 'flex';
         document.getElementById('mapPage').style.display = 'none';
         
@@ -767,3 +713,141 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM loaded, initializing app...');
     new CustomerMapApp();
 });
+
+class IndexedDBManager {
+    constructor(dbName, storeName, version) {
+        this.dbName = dbName;
+        this.storeName = storeName;
+        this.version = version;
+        this.db = null;
+    }
+
+    async openDB() {
+        return new Promise((resolve, reject) => {
+            if (this.db) {
+                return resolve(this.db);
+            }
+
+            const request = indexedDB.open(this.dbName, this.version);
+
+            request.onerror = (event) => {
+                console.error('IndexedDB error:', event.target.error);
+                reject('IndexedDB error');
+            };
+
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(this.storeName)) {
+                    const store = db.createObjectStore(this.storeName, { keyPath: 'accno' });
+                    // Create indexes for searching
+                    store.createIndex('name', 'name', { unique: false });
+                    store.createIndex('accno_lower', 'accno_lower', { unique: false });
+                }
+            };
+
+            request.onsuccess = (event) => {
+                this.db = event.target.result;
+                resolve(this.db);
+            };
+        });
+    }
+
+    async addDataInBatches(data) {
+        const db = await this.openDB();
+        const transaction = db.transaction(this.storeName, 'readwrite');
+        const store = transaction.objectStore(this.storeName);
+
+        // Add a lowercase version of accno for case-insensitive search
+        data.forEach(item => {
+            item.accno_lower = item.accno.toLowerCase();
+            store.put(item);
+        });
+
+        return new Promise((resolve, reject) => {
+            transaction.oncomplete = () => {
+                resolve();
+            };
+            transaction.onerror = (event) => {
+                console.error('Transaction error:', event.target.error);
+                reject(event.target.error);
+            };
+        });
+    }
+
+    async searchData(searchTerm, limit = 50) {
+        const db = await this.openDB();
+        const transaction = db.transaction(this.storeName, 'readonly');
+        const store = transaction.objectStore(this.storeName);
+        const results = [];
+
+        return new Promise((resolve) => {
+            // Search by account number (case-insensitive)
+            const accnoIndex = store.index('accno_lower');
+            const accnoRange = IDBKeyRange.bound(searchTerm, searchTerm + '\uffff');
+            const accnoRequest = accnoIndex.openCursor(accnoRange);
+            
+            accnoRequest.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor && results.length < limit) {
+                    results.push(cursor.value);
+                    cursor.continue();
+                } else {
+                    // Now search by name
+                    const nameIndex = store.index('name');
+                    const nameRange = IDBKeyRange.bound(searchTerm, searchTerm + '\uffff');
+                    const nameRequest = nameIndex.openCursor(nameRange);
+
+                    nameRequest.onsuccess = (e) => {
+                        const nameCursor = e.target.result;
+                        if (nameCursor && results.length < limit) {
+                            // Avoid duplicates
+                            if (!results.some(r => r.accno === nameCursor.value.accno)) {
+                                results.push(nameCursor.value);
+                            }
+                            nameCursor.continue();
+                        } else {
+                            resolve(results);
+                        }
+                    };
+                }
+            };
+        });
+    }
+
+    async getDataSlice(limit = 50) {
+        const db = await this.openDB();
+        const transaction = db.transaction(this.storeName, 'readonly');
+        const store = transaction.objectStore(this.storeName);
+        const results = [];
+
+        return new Promise((resolve) => {
+            const request = store.openCursor();
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor && results.length < limit) {
+                    results.push(cursor.value);
+                    cursor.continue();
+                } else {
+                    resolve(results);
+                }
+            };
+        });
+    }
+
+    async getCount() {
+        const db = await this.openDB();
+        const transaction = db.transaction(this.storeName, 'readonly');
+        const store = transaction.objectStore(this.storeName);
+        return new Promise((resolve) => {
+            const request = store.count();
+            request.onsuccess = () => resolve(request.result);
+        });
+    }
+
+    async clearData() {
+        const db = await this.openDB();
+        const transaction = db.transaction(this.storeName, 'readwrite');
+        const store = transaction.objectStore(this.storeName);
+        store.clear();
+    }
+}
