@@ -634,22 +634,46 @@ class CustomerMapApp {
 
     async saveToLocalStorage() {
         try {
-            // For large datasets, save only essential data
-            const essentialData = this.customers.map(customer => ({
+            // Save all data required for the popup
+            const dataToStore = this.customers.map(customer => ({
                 accno: customer.accno,
                 name: customer.name,
                 longitude: customer.longitude,
                 latitude: customer.latitude,
                 tariffcode: customer.tariffcode,
-                consumerstatus: customer.consumerstatus
+                kworhp: customer.kworhp,
+                consumerstatus: customer.consumerstatus,
+                phase: customer.phase,
+                meterno: customer.meterno,
+                consumption: customer.consumption,
+                rdngmonth: customer.rdngmonth
             }));
             
-            localStorage.setItem('customerMapData', JSON.stringify(essentialData));
-            localStorage.setItem('isEssentialData', 'true');
-            console.log('Saved essential data to localStorage');
+            localStorage.setItem('customerMapData', JSON.stringify(dataToStore));
+            console.log('Saved complete customer data to localStorage');
         } catch (error) {
             console.error('Failed to save data to localStorage:', error);
-            this.showError('Warning: Unable to save data to browser storage. Data will be lost on page refresh.');
+            // Attempt to save with fewer fields if the full data is too large
+            if (error.name === 'QuotaExceededError') {
+                console.warn('LocalStorage quota exceeded. Trying to save essential data only.');
+                try {
+                    const essentialData = this.customers.map(customer => ({
+                        accno: customer.accno,
+                        name: customer.name,
+                        longitude: customer.longitude,
+                        latitude: customer.latitude,
+                        tariffcode: customer.tariffcode,
+                        consumerstatus: customer.consumerstatus
+                    }));
+                    localStorage.setItem('customerMapData', JSON.stringify(essentialData));
+                    console.log('Saved essential data to localStorage as a fallback.');
+                    this.showError('Warning: Some customer details may not be available due to storage limits.');
+                } catch (e) {
+                    this.showError('Warning: Unable to save data to browser storage. Data will be lost on page refresh.');
+                }
+            } else {
+                this.showError('Warning: Unable to save data to browser storage. Data will be lost on page refresh.');
+            }
         }
     }
 
