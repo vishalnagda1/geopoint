@@ -30,18 +30,22 @@
     <div class="page" id="homePage">
         <div class="home-container">
             <h1>Customer Map Viewer</h1>
-            <p>Upload your Excel file containing customer data with latitude and longitude information.</p>
+            <p>Upload your CSV file containing customer data with latitude and longitude information.</p>
             
             <div class="upload-area" id="uploadArea">
                 <div class="upload-icon">📁</div>
-                <p>Click to upload or drag and drop your Excel file</p>
-                <input type="file" id="fileInput" accept=".xlsx,.xls" hidden>
+                <p>Click to upload or drag and drop your CSV file</p>
+                <input type="file" id="fileInput" accept=".csv" hidden>
             </div>
             
             <div class="error-message" id="errorMessage"></div>
             <div class="loading" id="loading" style="display: none;">
                 <div class="spinner"></div>
                 <p>Processing your file...</p>
+                <div class="progress-container">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+                <p id="progressText">0%</p>
             </div>
         </div>
     </div>
@@ -56,7 +60,6 @@
 
     <!-- Scripts -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

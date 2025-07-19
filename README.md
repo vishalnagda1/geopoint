@@ -1,21 +1,23 @@
 # Customer Map Viewer
 
-A frontend web application that visualizes customer data on an interactive map based on Excel file input containing latitude and longitude coordinates. Perfect for organizations that need to display customer locations geographically.
+A frontend web application that visualizes customer data on an interactive map based on CSV file input containing latitude and longitude coordinates. Perfect for organizations that need to display customer locations geographically with support for large datasets (45,000+ records).
 
 ## Features
 
-- 📊 **Excel File Upload**: Upload Excel files (.xlsx, .xls) with customer data
+- 📊 **CSV File Upload**: Upload CSV files with customer data
 - 🗺️ **Interactive Map**: View all customers on an interactive map using Leaflet.js
 - 💾 **Local Storage**: Data persists in browser's local storage for future visits
 - 🍔 **Burger Menu**: Easy navigation with customer list and data management
 - 📱 **Responsive Design**: Works on desktop and mobile devices
 - 🎯 **Customer Focus**: Click on customer in the list to focus on their location
 - 🧹 **Data Management**: Clear stored data and start fresh
-- ✅ **Data Validation**: Validates Excel columns and coordinate data
+- ✅ **Data Validation**: Validates CSV columns and coordinate data
+- ⚡ **Batch Processing**: Handles large datasets (45,000+ records) efficiently
+- 📈 **Progress Tracking**: Real-time progress indicator during data processing
 
-## Required Excel Columns
+## Required CSV Columns
 
-Your Excel file must contain these columns (case-insensitive):
+Your CSV file must contain these columns (case-insensitive):
 - `accno` - Account number
 - `name` - Customer name
 - `longitude` - Longitude coordinate
@@ -32,14 +34,22 @@ Optional columns that will be displayed:
 
 ## How to Use
 
-1. **First Visit**: Upload your Excel file using the upload button
+1. **First Visit**: Upload your CSV file using the upload button
 2. **Data Validation**: The app validates your data and shows any errors
-3. **Map View**: Successfully uploaded data is displayed on the map
-4. **Navigation**: Use the burger menu to:
-   - View list of all customers
+3. **Batch Processing**: Large datasets are processed in batches with progress indicator
+4. **Map View**: Successfully uploaded data is displayed on the map
+5. **Navigation**: Use the burger menu to:
+   - View list of all customers (first 100 shown for performance)
    - Click on any customer to focus on their location
    - Clear stored data
-5. **Future Visits**: Data is automatically loaded from local storage
+6. **Future Visits**: Data is automatically loaded from local storage
+
+## Performance Features
+
+- **Batch Processing**: Processes large CSV files (45,000+ records) in chunks
+- **Progressive Loading**: Shows progress during data processing
+- **Memory Management**: Optimizes localStorage usage for large datasets
+- **Efficient Rendering**: Adds map markers in batches to prevent browser freezing
 
 ## Local Development
 
@@ -95,7 +105,6 @@ If you want to use automated deployment:
 
 This project uses CDN-hosted libraries (no npm install required):
 - **Leaflet.js**: Interactive maps
-- **SheetJS**: Excel file processing
 - **Modern CSS**: Responsive design with backdrop-filter effects
 
 ## Browser Compatibility
@@ -107,12 +116,13 @@ This project uses CDN-hosted libraries (no npm install required):
 
 ## Sample Data Format
 
-Your Excel file should look like this:
+Your CSV file should look like this:
 
-| accno | name | longitude | lattitude | tariffcode | kworhp | consumerstatus |
-|-------|------|-----------|-----------|------------|---------|----------------|
-| 01020001 | AEN PHED | 73.5308777 | 24.7633825 | 6000D | HP | R |
-| 01020002 | AEN PHED JJY | 73.4532100 | 24.8901234 | 5000D | HP | R |
+```csv
+accno,name,longitude,lattitude,tariffcode,kworhp,consumerstatus
+01020001,AEN PHED,73.5308777,24.7633825,6000D,HP,R
+01020002,AEN PHED JJY,73.4532100,24.8901234,5000D,HP,R
+```
 
 ## Security & Privacy
 
@@ -137,10 +147,17 @@ Your Excel file should look like this:
 3. **Map not displaying**:
    - Check browser console for errors
    - Ensure you have internet connection (for map tiles)
+   - Try refreshing the page
 
 4. **File upload not working**:
-   - Ensure file is .xlsx or .xls format
+   - Ensure file is .csv format
    - Check file isn't corrupted
+   - Verify CSV has proper comma separation
+
+5. **Performance issues with large files**:
+   - The app processes data in batches automatically
+   - Large datasets may take a few minutes to process
+   - Check the progress bar during processing
 
 ## License
 

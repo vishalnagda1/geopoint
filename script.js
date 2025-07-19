@@ -3,7 +3,9 @@ class CustomerMapApp {
         this.customers = [];
         this.map = null;
         this.markers = [];
+        this.markerClusterGroup = null;
         this.requiredColumns = ['accno', 'name', 'longitude', 'lattitude'];
+        this.batchSize = 1000; // Process 1000 records at a time
         
         this.init();
     }
@@ -73,50 +75,53 @@ class CustomerMapApp {
 
     async processFile(file) {
         // Validate file type
-        const validTypes = ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 
-                           'application/vnd.ms-excel'];
-        
-        if (!validTypes.includes(file.type) && !file.name.match(/\.(xlsx|xls)$/i)) {
-            this.showError('Please upload a valid Excel file (.xlsx or .xls)');
+        if (!file.name.match(/\.csv$/i) && file.type !== 'text/csv') {
+            this.showError('Please upload a valid CSV file (.csv)');
             return;
         }
 
         this.showLoading(true);
         this.hideError();
+        this.updateProgress(0);
 
         try {
-            const data = await this.readExcelFile(file);
-            const validatedData = this.validateData(data);
+            console.log('Starting file processing...');
+            const csvText = await this.readCSVFile(file);
+            console.log('File read successfully, parsing CSV...');
+            
+            const data = await this.parseCSV(csvText);
+            console.log(`Parsed ${data.length} rows from CSV`);
+            
+            const validatedData = await this.validateDataInBatches(data);
+            console.log(`Validated ${validatedData.length} records`);
             
             if (validatedData.length === 0) {
                 throw new Error('No valid customer data found with required columns and coordinates');
             }
 
             this.customers = validatedData;
-            this.saveToLocalStorage();
+            console.log('Saving to localStorage...');
+            await this.saveToLocalStorage();
+            console.log('Data saved, showing map...');
             this.showMapPage();
             
         } catch (error) {
+            console.error('Error processing file:', error);
             this.showError(error.message);
         } finally {
             this.showLoading(false);
         }
     }
 
-    readExcelFile(file) {
+    readCSVFile(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             
             reader.onload = (e) => {
                 try {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: 'array' });
-                    const firstSheetName = workbook.SheetNames[0];
-                    const worksheet = workbook.Sheets[firstSheetName];
-                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
-                    resolve(jsonData);
+                    resolve(e.target.result);
                 } catch (error) {
-                    reject(new Error('Failed to read Excel file. Please ensure it\'s a valid Excel file.'));
+                    reject(new Error('Failed to read CSV file. Please ensure it\'s a valid CSV file.'));
                 }
             };
             
@@ -124,13 +129,58 @@ class CustomerMapApp {
                 reject(new Error('Failed to read the file'));
             };
             
-            reader.readAsArrayBuffer(file);
+            reader.readAsText(file);
         });
     }
 
-    validateData(data) {
+    async parseCSV(csvText) {
+        return new Promise((resolve) => {
+            const lines = csvText.split('\n');
+            const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+            const data = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (line) {
+                    const values = this.parseCSVLine(line);
+                    if (values.length === headers.length) {
+                        const row = {};
+                        headers.forEach((header, index) => {
+                            row[header] = values[index] ? values[index].trim() : '';
+                        });
+                        data.push(row);
+                    }
+                }
+            }
+            resolve(data);
+        });
+    }
+
+    parseCSVLine(line) {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            
+            if (char === '"') {
+                inQuotes = !inQuotes;
+            } else if (char === ',' && !inQuotes) {
+                result.push(current);
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+        result.push(current);
+        
+        return result.map(val => val.replace(/"/g, ''));
+    }
+
+    async validateDataInBatches(data) {
         if (!Array.isArray(data) || data.length === 0) {
-            throw new Error('Excel file is empty or invalid');
+            throw new Error('CSV file is empty or invalid');
         }
 
         // Check if required columns exist
@@ -145,30 +195,46 @@ class CustomerMapApp {
             throw new Error(`Missing required columns: ${missingColumns.join(', ')}`);
         }
 
-        // Filter and validate data
-        const validCustomers = data.filter(row => {
-            const accno = this.getColumnValue(row, 'accno');
-            const name = this.getColumnValue(row, 'name');
-            const longitude = this.getColumnValue(row, 'longitude');
-            const latitude = this.getColumnValue(row, 'lattitude');
+        const validCustomers = [];
+        const totalBatches = Math.ceil(data.length / this.batchSize);
+        
+        for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+            const start = batchIndex * this.batchSize;
+            const end = Math.min(start + this.batchSize, data.length);
+            const batch = data.slice(start, end);
+            
+            const batchValidated = batch.filter(row => {
+                const accno = this.getColumnValue(row, 'accno');
+                const name = this.getColumnValue(row, 'name');
+                const longitude = this.getColumnValue(row, 'longitude');
+                const latitude = this.getColumnValue(row, 'lattitude');
 
-            // Check if required fields exist and coordinates are valid
-            return accno && name && 
-                   this.isValidCoordinate(longitude, -180, 180) && 
-                   this.isValidCoordinate(latitude, -90, 90);
-        }).map(row => ({
-            accno: this.getColumnValue(row, 'accno'),
-            name: this.getColumnValue(row, 'name'),
-            longitude: parseFloat(this.getColumnValue(row, 'longitude')),
-            latitude: parseFloat(this.getColumnValue(row, 'lattitude')),
-            tariffcode: this.getColumnValue(row, 'tariffcode') || '',
-            kworhp: this.getColumnValue(row, 'kworhp') || '',
-            consumerstatus: this.getColumnValue(row, 'consumerstatus') || '',
-            phase: this.getColumnValue(row, 'phase') || '',
-            meterno: this.getColumnValue(row, 'meterno') || '',
-            consumption: this.getColumnValue(row, 'consumption') || '',
-            rdngmonth: this.getColumnValue(row, 'rdngmonth') || ''
-        }));
+                return accno && name && 
+                       this.isValidCoordinate(longitude, -180, 180) && 
+                       this.isValidCoordinate(latitude, -90, 90);
+            }).map(row => ({
+                accno: this.getColumnValue(row, 'accno'),
+                name: this.getColumnValue(row, 'name'),
+                longitude: parseFloat(this.getColumnValue(row, 'longitude')),
+                latitude: parseFloat(this.getColumnValue(row, 'lattitude')),
+                tariffcode: this.getColumnValue(row, 'tariffcode') || '',
+                kworhp: this.getColumnValue(row, 'kworhp') || '',
+                consumerstatus: this.getColumnValue(row, 'consumerstatus') || '',
+                phase: this.getColumnValue(row, 'phase') || '',
+                meterno: this.getColumnValue(row, 'meterno') || '',
+                consumption: this.getColumnValue(row, 'consumption') || '',
+                rdngmonth: this.getColumnValue(row, 'rdngmonth') || ''
+            }));
+            
+            validCustomers.push(...batchValidated);
+            
+            // Update progress
+            const progress = Math.round(((batchIndex + 1) / totalBatches) * 100);
+            this.updateProgress(progress);
+            
+            // Allow UI to update
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
 
         console.log(`Validated ${validCustomers.length} customers out of ${data.length} total records`);
         return validCustomers;
@@ -188,53 +254,104 @@ class CustomerMapApp {
     }
 
     showMapPage() {
+        console.log('Showing map page...');
         document.getElementById('homePage').style.display = 'none';
         document.getElementById('mapPage').style.display = 'block';
         
-        // Initialize map if not already done
-        if (!this.map) {
-            this.initializeMap();
-        }
-        
-        this.displayCustomersOnMap();
-        this.updateCustomerList();
-        this.updateCustomerCount();
+        // Small delay to ensure the map container is visible
+        setTimeout(() => {
+            if (!this.map) {
+                console.log('Initializing map...');
+                this.initializeMap();
+            }
+            this.displayCustomersOnMap();
+            this.updateCustomerList();
+            this.updateCustomerCount();
+        }, 100);
     }
 
     initializeMap() {
-        this.map = L.map('map').setView([24.5854, 73.7125], 6); // Default to Rajasthan, India
+        try {
+            console.log('Creating map...');
+            // Initialize map with a default view
+            this.map = L.map('map', {
+                center: [24.5854, 73.7125], // Default to Rajasthan, India
+                zoom: 6,
+                zoomControl: true,
+                scrollWheelZoom: true
+            });
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors',
-            maxZoom: 18
-        }).addTo(this.map);
+            console.log('Adding tile layer...');
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 18,
+                minZoom: 3
+            }).addTo(this.map);
+
+            // Force map to resize after initialization
+            setTimeout(() => {
+                this.map.invalidateSize();
+                console.log('Map initialized and resized');
+            }, 200);
+
+        } catch (error) {
+            console.error('Error initializing map:', error);
+            this.showError('Failed to initialize map. Please refresh the page and try again.');
+        }
     }
 
-    displayCustomersOnMap() {
+    async displayCustomersOnMap() {
+        if (!this.map) {
+            console.error('Map not initialized');
+            return;
+        }
+
+        console.log(`Displaying ${this.customers.length} customers on map...`);
+        
         // Clear existing markers
         this.markers.forEach(marker => this.map.removeLayer(marker));
         this.markers = [];
 
         if (this.customers.length === 0) return;
 
-        // Add markers for each customer
+        // For large datasets, add markers in batches
         const bounds = [];
+        const totalBatches = Math.ceil(this.customers.length / this.batchSize);
         
-        this.customers.forEach(customer => {
-            const marker = L.marker([customer.latitude, customer.longitude])
-                .addTo(this.map);
+        for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+            const start = batchIndex * this.batchSize;
+            const end = Math.min(start + this.batchSize, this.customers.length);
+            const batch = this.customers.slice(start, end);
             
-            // Create popup content
-            const popupContent = this.createPopupContent(customer);
-            marker.bindPopup(popupContent);
+            batch.forEach(customer => {
+                try {
+                    const marker = L.marker([customer.latitude, customer.longitude])
+                        .addTo(this.map);
+                    
+                    const popupContent = this.createPopupContent(customer);
+                    marker.bindPopup(popupContent);
+                    
+                    this.markers.push(marker);
+                    bounds.push([customer.latitude, customer.longitude]);
+                } catch (error) {
+                    console.error('Error adding marker for customer:', customer.accno, error);
+                }
+            });
             
-            this.markers.push(marker);
-            bounds.push([customer.latitude, customer.longitude]);
-        });
+            // Allow UI to update between batches
+            if (batchIndex < totalBatches - 1) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+        }
 
         // Fit map to show all markers
         if (bounds.length > 0) {
-            this.map.fitBounds(bounds, { padding: [20, 20] });
+            try {
+                this.map.fitBounds(bounds, { padding: [20, 20] });
+                console.log('Map bounds fitted to markers');
+            } catch (error) {
+                console.error('Error fitting bounds:', error);
+            }
         }
     }
 
@@ -269,19 +386,30 @@ class CustomerMapApp {
         header.style.background = 'rgba(0, 0, 0, 0.05)';
         customerList.appendChild(header);
 
-        // Add customer items
-        this.customers.forEach((customer, index) => {
+        // Add customer items (limit to first 100 for performance)
+        const displayLimit = Math.min(100, this.customers.length);
+        for (let i = 0; i < displayLimit; i++) {
+            const customer = this.customers[i];
             const item = document.createElement('div');
             item.className = 'customer-item';
             item.textContent = `${customer.accno} - ${customer.name}`;
             item.addEventListener('click', () => {
-                this.focusOnCustomer(index);
+                this.focusOnCustomer(i);
                 // Close menu
                 document.getElementById('burgerIcon').classList.remove('active');
                 document.getElementById('menuContent').classList.remove('active');
             });
             customerList.appendChild(item);
-        });
+        }
+
+        if (this.customers.length > displayLimit) {
+            const moreItem = document.createElement('div');
+            moreItem.className = 'customer-item';
+            moreItem.textContent = `... and ${this.customers.length - displayLimit} more`;
+            moreItem.style.fontStyle = 'italic';
+            moreItem.style.pointerEvents = 'none';
+            customerList.appendChild(moreItem);
+        }
     }
 
     focusOnCustomer(index) {
@@ -293,7 +421,9 @@ class CustomerMapApp {
             this.map.setView([customer.latitude, customer.longitude], 15);
             
             // Open popup
-            marker.openPopup();
+            if (marker) {
+                marker.openPopup();
+            }
         }
     }
 
@@ -302,12 +432,47 @@ class CustomerMapApp {
         customerCount.textContent = `Total Customers: ${this.customers.length}`;
     }
 
-    saveToLocalStorage() {
+    async saveToLocalStorage() {
         try {
-            localStorage.setItem('customerMapData', JSON.stringify(this.customers));
-            console.log('Data saved to localStorage');
+            // For large datasets, we need to be careful with localStorage limits
+            const dataString = JSON.stringify(this.customers);
+            const sizeInMB = new Blob([dataString]).size / (1024 * 1024);
+            
+            console.log(`Data size: ${sizeInMB.toFixed(2)} MB`);
+            
+            if (sizeInMB > 5) { // localStorage typically has 5-10MB limit
+                // Save only essential data for large datasets
+                const essentialData = this.customers.map(customer => ({
+                    accno: customer.accno,
+                    name: customer.name,
+                    longitude: customer.longitude,
+                    latitude: customer.latitude
+                }));
+                localStorage.setItem('customerMapData', JSON.stringify(essentialData));
+                localStorage.setItem('isEssentialData', 'true');
+                console.log('Saved essential data due to size constraints');
+            } else {
+                localStorage.setItem('customerMapData', dataString);
+                localStorage.setItem('isEssentialData', 'false');
+                console.log('Saved complete data to localStorage');
+            }
         } catch (error) {
             console.error('Failed to save data to localStorage:', error);
+            // Try saving essential data only
+            try {
+                const essentialData = this.customers.map(customer => ({
+                    accno: customer.accno,
+                    name: customer.name,
+                    longitude: customer.longitude,
+                    latitude: customer.latitude
+                }));
+                localStorage.setItem('customerMapData', JSON.stringify(essentialData));
+                localStorage.setItem('isEssentialData', 'true');
+                console.log('Saved essential data as fallback');
+            } catch (fallbackError) {
+                console.error('Failed to save even essential data:', fallbackError);
+                this.showError('Warning: Unable to save data to browser storage. Data will be lost on page refresh.');
+            }
         }
     }
 
@@ -324,6 +489,8 @@ class CustomerMapApp {
             }
         } catch (error) {
             console.error('Failed to load data from localStorage:', error);
+            localStorage.removeItem('customerMapData');
+            localStorage.removeItem('isEssentialData');
         }
         
         // Show home page if no valid stored data
@@ -333,9 +500,14 @@ class CustomerMapApp {
     clearStoredData() {
         if (confirm('Are you sure you want to clear all customer data? This action cannot be undone.')) {
             localStorage.removeItem('customerMapData');
+            localStorage.removeItem('isEssentialData');
             this.customers = [];
-            this.markers.forEach(marker => this.map.removeLayer(marker));
-            this.markers = [];
+            
+            if (this.map) {
+                this.markers.forEach(marker => this.map.removeLayer(marker));
+                this.markers = [];
+            }
+            
             this.showHomePage();
             
             // Close menu
@@ -364,10 +536,24 @@ class CustomerMapApp {
 
     showLoading(show) {
         document.getElementById('loading').style.display = show ? 'block' : 'none';
+        if (!show) {
+            this.updateProgress(0);
+        }
+    }
+
+    updateProgress(percentage) {
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        
+        if (progressBar && progressText) {
+            progressBar.style.width = percentage + '%';
+            progressText.textContent = percentage + '%';
+        }
     }
 }
 
 // Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM loaded, initializing app...');
     new CustomerMapApp();
 });
